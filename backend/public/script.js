@@ -225,6 +225,11 @@ function addChatToMenu(chatName, label) {
 }
 
 async function setActiveChat(chatName) {
+  if (chatName === "tickets" && username !== "Admin01") {
+    authError.textContent = "Access denied";
+    setTimeout(() => { authError.textContent = ""; }, 3000);
+    return;
+  }
   currentChat = chatName;
   chatHeader.textContent = chatName;
   selectedMessageId = null;
@@ -284,6 +289,12 @@ async function sendMessage() {
   }
   
   if (!username) return;
+
+  if (currentChat === "tickets" && username !== "Admin01") {
+    authError.textContent = "Access denied";
+    setTimeout(() => { authError.textContent = ""; }, 3000);
+    return;
+  }
 
   let payloadText = text;
 
@@ -364,6 +375,7 @@ socket.on("message_deleted", data => {
 
 socket.on("chat_created", data => {
   if (!data || !data.chat) return;
+  if (data.chat === "tickets" && username !== "Admin01") return;
   addChatToMenu(data.chat);
 });
 

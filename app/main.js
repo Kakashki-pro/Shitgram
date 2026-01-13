@@ -6,12 +6,14 @@ let mainWindow;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
+    width: 1400,
+    height: 900,
+    minWidth: 900,
+    minHeight: 700,
     icon: path.join(__dirname, "assets", "icon.ico"),
     show: false,
+    frame: true,
+    backgroundColor: "#1a1410",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -34,7 +36,7 @@ function createWindow() {
   });
 
   if (isDev) {
-    mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 
   createMenu();
