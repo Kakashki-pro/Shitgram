@@ -141,6 +141,44 @@ db.addTicket = async function(username, text) {
   }
 };
 
+db.addMessage = async function(id, username, text, chat, time) {
+  try {
+    await db.query(
+      "INSERT INTO messages (msg_id, username, text, chat, created_at) VALUES ($1, $2, $3, $4, $5)",
+      [id, username, text, chat, time]
+    );
+    return true;
+  } catch (err) {
+    console.error("Failed to add message:", err);
+    return false;
+  }
+};
+
+db.getMessages = async function(chat) {
+  try {
+    const result = await db.query(
+      "SELECT msg_id as id, username, text, chat, created_at as time FROM messages WHERE chat = $1 ORDER BY created_at ASC",
+      [chat]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("Failed to get messages:", err);
+    return [];
+  }
+};
+
+db.deleteMessage = async function(id, chat) {
+  try {
+    await db.query(
+      "DELETE FROM messages WHERE msg_id = $1 AND chat = $2",
+      [id, chat]
+    );
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 async function initTables() {
   try {
     await db.query(`
@@ -175,6 +213,17 @@ async function initTables() {
         id SERIAL PRIMARY KEY,
         username TEXT NOT NULL,
         text TEXT NOT NULL
+      );
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        msg_id TEXT UNIQUE NOT NULL,
+        username TEXT NOT NULL,
+        text TEXT NOT NULL,
+        chat TEXT NOT NULL,
+        created_at BIGINT NOT NULL
       );
     `);
 

@@ -51,17 +51,20 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-let messages = [];
-
-app.get("/api/messages/:chat", (req, res) => {
+app.get("/api/messages/:chat", async (req, res) => {
   const chat = req.params.chat;
-  const filtered = messages.filter(m => m.chat === chat);
-  res.json(filtered);
+  const dbMessages = await db.getMessages(chat);
+  res.json(dbMessages);
 });
 
-app.get("/api/groups", (req, res) => {
-  const groups = [...new Set(messages.map(m => m.chat))].filter(c => c !== "settings");
-  res.json(groups.map(name => ({ name })));
+app.get("/api/groups", async (req, res) => {
+  try {
+    const result = await db.query("SELECT name FROM groups");
+    const groups = result.rows;
+    res.json(groups);
+  } catch (err) {
+    res.json([]);
+  }
 });
 
 io.on("connection", socket => {
@@ -81,7 +84,7 @@ io.on("connection", socket => {
         time: Date.now()
       };
 
-      messages.push(botMsg);
+      await db.addMessage(botMsg.id, botMsg.username, botMsg.text, botMsg.chat, botMsg.time);
       io.emit("new_message", botMsg);
       return;
     }
@@ -94,15 +97,15 @@ io.on("connection", socket => {
       time: Date.now()
     };
 
-    messages.push(msg);
+    await db.addMessage(msg.id, msg.username, msg.text, msg.chat, msg.time);
     io.emit("new_message", msg);
   });
 
-  socket.on("delete_message", data => {
+  socket.on("delete_message", async data => {
     const { id, chat } = data;
     if (!id || !chat) return;
 
-    messages = messages.filter(m => m.id !== id);
+    await db.deleteMessage(id, chat);
     io.emit("message_deleted", { id, chat });
   });
 });
@@ -209,7 +212,7 @@ async function handleCommand(username, text) {
         chat: "tickets",
         time: Date.now()
       };
-      messages.push(ticketMsg);
+      await db.addMessage(ticketMsg.id, ticketMsg.username, ticketMsg.text, ticketMsg.chat, ticketMsg.time);
       io.emit("new_message", ticketMsg);
       io.emit("chat_created", { chat: "tickets" });
       
