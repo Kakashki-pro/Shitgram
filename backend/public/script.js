@@ -232,6 +232,26 @@ async function login() {
     ensureSettingsChat();
     await loadGroupsFromServer();
     setActiveChat("settings");
+    
+    // Show /help by default in settings
+    const helpMsg = {
+      id: genMsgId(),
+      username: "settings_bot",
+      text: `Commands:
+  /help - list commands
+  /msg <username> - open DM with user
+  /change_name <new_nick> - change username
+  /Ucode - get user code
+  /finduser <code> - find user by code
+  /create_group <name> - create group
+  /Gcode <group> - get group code
+  /join_group <code> - join group
+  /delete_group-channel <name> - delete group
+  /ticket <text> - submit ticket`,
+      chat: "settings",
+      time: Date.now()
+    };
+    await renderMessage(helpMsg);
   } catch (e) {
     authError.textContent = e.message;
   }
@@ -242,7 +262,7 @@ window.login = login;
 
 async function loadGroupsFromServer() {
   try {
-    const res = await fetch(`${SERVER_URL}/api/groups`);
+    const res = await fetch(`${SERVER_URL}/api/groups?username=${username}`);
     if (!res.ok) return;
 
     const groups = await res.json();
@@ -308,7 +328,7 @@ chatList.addEventListener("click", e => {
 
 async function loadChatHistory(chatName) {
   try {
-    const res = await fetch(`${SERVER_URL}/api/messages/${encodeURIComponent(chatName)}`);
+    const res = await fetch(`${SERVER_URL}/api/messages/${encodeURIComponent(chatName)}?username=${username}`);
     if (!res.ok) {
       messagesEl.innerHTML = "";
       return;

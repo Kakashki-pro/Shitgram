@@ -53,13 +53,48 @@ app.post("/api/login", async (req, res) => {
 
 app.get("/api/messages/:chat", async (req, res) => {
   const chat = req.params.chat;
+  const username = req.query.username;
+
+  if (!username) {
+    return res.json([]);
+  }
+
+  // Check if it's a group chat or DM
+  const groupResult = await db.query("SELECT * FROM groups WHERE name = $1", [chat]);
+  
+  // If it's a group, verify user is a member
+  if (groupResult.rows.length > 0) {
+    const isMember = await db.isMember(chat, username);
+    if (!isMember) {
+      return res.json([]); // Unauthorized access
+    }
+  }
+
+  // If it's a DM, verify user is part of it
+  if (chat.includes("-")) {
+    const [user1, user2] = chat.split("-").sort();
+    if (user1 !== username && user2 !== username) {
+      return res.json([]); // Unauthorized access
+    }
+  }
+
   const dbMessages = await db.getMessages(chat);
   res.json(dbMessages);
 });
 
 app.get("/api/groups", async (req, res) => {
+  const username = req.query.username;
+  
+  if (!username) {
+    return res.json([]);
+  }
+
   try {
-    const result = await db.query("SELECT name FROM groups");
+    // Only return groups where user is a member
+    const result = await db.query(
+      "SELECT DISTINCT g.name FROM groups g INNER JOIN group_members m ON g.name = m.group_name WHERE m.username = $1",
+      [username]
+    );
     const groups = result.rows;
     res.json(groups);
   } catch (err) {
