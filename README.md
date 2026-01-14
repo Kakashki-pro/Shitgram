@@ -52,15 +52,17 @@ The app connects to the same server as the web version—all chats, groups, and 
 
 Use these in the Settings chat:
 
-- `/help` - List all commands
-- `/change_name <nick>` - Change your username
-- `/Ucode` - Get your personal code
-- `/finduser <code>` - Find user by code
-- `/create_group <name>` - Create a new group
-- `/Gcode <group>` - Get group code
-- `/join_group <code>` - Join existing group
-- `/delete_group-channel <name>` - Delete your group
-- `/ticket <text>` - Submit feedback
+- `/help` - list commands
+- `/msg <username>` - open DM with user
+- `/change_name <new_nick>` - change username
+- `/Ucode` - get user code
+- `/finduser <code>` - find user by code
+- `/create_group <name>` - create group
+- `/Gcode <group>` - get group code
+- `/join_group <code>` - join group
+- `/delete_group-channel <name>` - delete group
+- `/ticket <text>` - submit ticket
+- `/x` - ???
 
 ## Technical notes
 
