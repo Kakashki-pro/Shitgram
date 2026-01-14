@@ -1,46 +1,38 @@
 # Shitgram
 
-Encrypted messaging platform
+End-to-end encrypted messaging for web and desktop
 
-## What it is
+Shitgram is a real-time chat platform with peer-to-peer encryption. Send messages that only you and your recipients can read, join group chats, and manage conversations from the browser or Electron desktop app
 
-Shitgram is a chat application that lets you create encrypted group conversations and message privately with end-to-end encryption. Everything is encrypted with AES-GCM on the client side, so no one but you and your group members can read messages
+## What's included
+
+**Private messaging** encrypts your conversations so only the recipient can read them. Messages stay encrypted even if transmitted through servers—each user decrypts with their own password-derived key
+
+**Group chats** let you invite others via group codes. Group members can set a shared password to encrypt group messages, or skip encryption for open channels
+
+**Desktop client** runs independently on Windows, or load the web version in any browser. Both connect to the same server
+
+**Message management** lets you delete sent messages from all participants. Commands in the settings chat create groups, change your username, or submit support tickets
+
+**Password-based encryption** uses PBKDF2 and AES-256-GCM to keep messages secure without managing keys. Your password never leaves your device
 
 ## Getting started
 
-### Prerequisites
+### Web version
 
-- Node.js 16+
-- PostgreSQL (for server)
-- npm or yarn
-
-### Installation
-
-Backend (Server):
+Prerequisites: Node.js 20+ and PostgreSQL
 
 ```bash
 cd backend
 npm install
-```
-
-Set up environment variables:
-
-```bash
-DATABASE_URL=your_postgres_url
-PORT=3000
-```
-
-Start the server:
-
-```bash
 npm start
 ```
 
-Frontend (Web):
+Open `http://localhost:5000` in your browser
 
-Navigate to `http://localhost:3000` in your browser
+### Desktop app
 
-Desktop App:
+Prerequisites: Node.js 20+
 
 ```bash
 cd app
@@ -48,26 +40,17 @@ npm install
 npm start
 ```
 
-Build for Windows:
+To build for Windows:
 
 ```bash
 npm run build:win
 ```
 
-## Features
-
-- End-to-end encryption with AES-256-GCM
-- Real-time messaging with WebSocket
-- Group chat management
-- User codes for finding and connecting with friends
-- Group codes to join existing groups
-- Message deletion (Ctrl+Del)
-- Settings bot with helpful commands (/help)
-- Support for tickets and feedback
+The app connects to the same server as the web version—all chats, groups, and messages sync across platforms
 
 ## Commands
 
-Use these commands in the Settings chat:
+Use these in the Settings chat:
 
 - `/help` - List all commands
 - `/change_name <nick>` - Change your username
@@ -78,6 +61,18 @@ Use these commands in the Settings chat:
 - `/join_group <code>` - Join existing group
 - `/delete_group-channel <name>` - Delete your group
 - `/ticket <text>` - Submit feedback
+
+## Technical notes
+
+**Encryption** uses PBKDF2 for key derivation and AES-256-GCM for encryption. Private chats compute a deterministic key from both usernames and the user's password, so both parties derive the same key and can decrypt. Group chats work the same way with an optional shared group password
+
+**Real-time sync** uses Socket.io. Messages broadcast to active users instantly and persist in PostgreSQL, so you can load history anytime
+
+**Client-side origin** means your password never reaches the server—only the hashed password for authentication. Encryption and decryption happen entirely in the browser or Electron app
+
+This project builds on encryption patterns found in modern secure messaging platforms. The implementation is original and uses the Web Crypto API for in-browser cryptography
+
+**Design inspiration**: Telegram Desktop (tdesktop) - GPLv3 licensed, open source
 
 ## License
 

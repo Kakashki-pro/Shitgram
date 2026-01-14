@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Shitgram</title>
+  <link rel="icon" type="image/x-icon" href="/assets/icon.ico">
   <style>
     * {
       margin: 0;
@@ -247,6 +248,22 @@
       transform: scale(1.1);
     }
 
+    #callBtn.in-call {
+      color: #e74c3c;
+      animation: pulseCall 1.5s infinite;
+    }
+
+    @keyframes pulseCall {
+      0%, 100% { 
+        color: #e74c3c;
+        box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4);
+      }
+      50% { 
+        color: #c0392b;
+        box-shadow: 0 0 0 4px rgba(231, 76, 60, 0);
+      }
+    }
+
     #messages {
       flex: 1;
       overflow-y: auto;
@@ -342,8 +359,10 @@
       font-size: 14px;
       transition: all 0.3s cubic-bezier(0.23, 1, 0.320, 1);
       max-height: 120px;
-      resize: vertical;
+      resize: none;
+      overflow: hidden;
       font-family: inherit;
+      line-height: 1.5;
     }
 
     #msgInput:focus {
@@ -515,6 +534,51 @@
         font-size: 18px;
       }
     }
+
+    #easterEggOverlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      z-index: 9999;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #easterEggOverlay.active {
+      display: flex;
+    }
+
+    #easterEggVideo {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    #easterEggOverlay:active, #easterEggVideo:active {
+      cursor: pointer;
+    }
+
+    .fire-falling {
+      position: fixed;
+      pointer-events: none;
+      z-index: 1000;
+      animation: fallDown linear forwards;
+    }
+
+    @keyframes fallDown {
+      0% {
+        transform: translateY(-100px) rotate(0deg);
+        opacity: 1;
+      }
+      100% {
+        transform: translateY(100vh) rotate(360deg);
+        opacity: 0.3;
+      }
+    }
   </style>
 </head>
 <body>
@@ -546,6 +610,7 @@
         <span>Settings</span>
       </div>
       <div class="header-actions">
+        <button id="callBtn" class="header-btn" title="Voice Call" style="display: none;">☎</button>
         <button class="header-btn" title="Info">ℹ</button>
         <button class="header-btn" title="Settings">⋮</button>
       </div>
@@ -570,6 +635,10 @@
   </div>
 </div>
 
+<div id="easterEggOverlay">
+  <video id="easterEggVideo" loop muted autoplay></video>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script src="script.js"></script>
 <script>
@@ -585,9 +654,11 @@
     charCount.parentElement.classList.toggle("warning", len > 1800);
     charCount.parentElement.classList.toggle("danger", len > 1950);
 
-    // Auto-resize textarea
+    // Auto-resize textarea properly
     msgInput.style.height = "auto";
-    msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + "px";
+    const scrollHeight = msgInput.scrollHeight;
+    const newHeight = Math.min(scrollHeight, 120);
+    msgInput.style.height = newHeight + "px";
   });
 
   // Update user display when logged in

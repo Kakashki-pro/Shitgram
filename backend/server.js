@@ -108,6 +108,38 @@ io.on("connection", socket => {
     await db.deleteMessage(id, chat);
     io.emit("message_deleted", { id, chat });
   });
+
+  socket.on("call_initiate", async data => {
+    const { from, to, offer } = data;
+    if (!from || !to || !offer) return;
+    // Broadcast to all clients so the recipient can receive it
+    io.emit("call_incoming", { from, to, offer });
+  });
+
+  socket.on("call_signal", data => {
+    const { to, signal } = data;
+    if (!to || !signal) return;
+    // Broadcast ICE candidate to all clients
+    io.emit("call_signal_received", { signal });
+  });
+
+  socket.on("call_accept", data => {
+    const { caller, answer } = data;
+    if (!caller || !answer) return;
+    io.emit("call_accepted", { caller, answer });
+  });
+
+  socket.on("call_reject", data => {
+    const { caller } = data;
+    if (!caller) return;
+    io.emit("call_rejected", { caller });
+  });
+
+  socket.on("call_end", data => {
+    const { to } = data;
+    if (!to) return;
+    io.emit("call_ended", { to });
+  });
 });
 
 async function handleCommand(username, text) {
@@ -118,6 +150,7 @@ async function handleCommand(username, text) {
     case "/help":
       return `Commands:
   /help - list commands
+  /msg <username> - open DM with user
   /change_name <new_nick> - change username
   /Ucode - get user code
   /finduser <code> - find user by code
@@ -125,13 +158,31 @@ async function handleCommand(username, text) {
   /Gcode <group> - get group code
   /join_group <code> - join group
   /delete_group-channel <name> - delete group
-  /ticket <text> - submit ticket`;
+  /ticket <text> - submit ticket
+  /x - ???`;
 
     case "/change_name": {
       const newName = parts[1];
       if (!newName) return "Usage: /change_name <nick>";
       const ok = await db.changeUsername(username, newName);
       return ok ? `Username changed to ${newName}` : "Username taken";
+    }
+
+    case "/msg": {
+      const otherUser = parts[1];
+      if (!otherUser) return "Usage: /msg <username>";
+      if (otherUser === username) return "Can't message yourself";
+      
+      const exists = await db.userExists(otherUser);
+      if (!exists) return `User ${otherUser} not found`;
+      
+      // Create DM chat name (sorted to ensure consistency)
+      const chatName = [username, otherUser].sort().join("-");
+      
+      // Emit event to create and open the chat (like groups)
+      io.emit("chat_created", { chat: chatName, isDM: true, user2: otherUser });
+      
+      return `Opening chat with ${otherUser}...`;
     }
 
     case "/Ucode": {
@@ -217,6 +268,11 @@ async function handleCommand(username, text) {
       io.emit("chat_created", { chat: "tickets" });
       
       return "Ticket sent";
+    }
+
+    case "/x": {
+      io.emit("easter_egg");
+      return "";
     }
 
     default:

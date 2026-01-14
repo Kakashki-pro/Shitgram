@@ -49,6 +49,14 @@ db.findUserByCode = async function(code) {
   return result.rows[0]?.username || null;
 };
 
+db.userExists = async function(username) {
+  const result = await db.query(
+    "SELECT 1 FROM users WHERE username = $1",
+    [username]
+  );
+  return result.rows.length > 0;
+};
+
 db.createGroup = async function(name, owner) {
   try {
     await db.query(

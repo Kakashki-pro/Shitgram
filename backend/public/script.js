@@ -9,6 +9,14 @@ let typingTimeout = null;
 let isTyping = false;
 let groupPasswords = {};
 
+// Voice call state
+let inCall = false;
+let callPartner = null;
+let localStream = null;
+let remoteStream = null;
+let peerConnection = null;
+let callStartTime = null;
+
 const authOverlay = document.getElementById("authOverlay");
 const authError = document.getElementById("authError");
 const messagesEl = document.getElementById("messages");
@@ -16,6 +24,37 @@ const msgInput = document.getElementById("msgInput");
 const sendBtn = document.getElementById("sendBtn");
 const chatHeader = document.getElementById("chatHeader");
 const chatList = document.getElementById("chatList");
+
+// Easter egg trigger function
+function triggerKakiEasterEgg() {
+    // 40% chance for bass version, 60% for normal
+    const musicFile = Math.random() < 0.4 ? "/assets/easter_msg_bass.mp3" : "/assets/easter_msg.mp3";
+    
+    // Play music
+    const audio = new Audio(musicFile);
+    audio.play().catch(() => {});
+
+    // Create falling fire images
+    const fireFall = setInterval(() => {
+        const fire = document.createElement("img");
+        fire.src = "/assets/fire_shit.png";
+        fire.className = "fire-falling";
+        fire.style.left = Math.random() * window.innerWidth + "px";
+        fire.style.width = (30 + Math.random() * 40) + "px";
+        fire.style.height = "auto";
+
+        const animDuration = 4 + Math.random() * 4;
+        fire.style.animationDuration = animDuration + "s";
+
+        document.body.appendChild(fire);
+
+        // Remove after animation
+        setTimeout(() => fire.remove(), animDuration * 1000);
+    }, 200); // Create new fire every 200ms
+
+    // Stop creating fires when music ends
+    audio.addEventListener("ended", () => clearInterval(fireFall));
+}
 
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
@@ -117,6 +156,20 @@ function validateChatName(name) {
   if (name.length > LIMITS.chatName) return `Max ${LIMITS.chatName} characters`;
   if (!/^[a-zA-Z0-9_\-]+$/.test(name)) return "Only letters, numbers, _, - allowed";
   return null;
+}
+
+function getEncryptionPassword(chatName) {
+  // For private chats (format: user1-user2), create deterministic key from both usernames
+  if (chatName.includes("-") && !chatName.includes("group") && chatName !== "settings" && chatName !== "tickets") {
+    const parts = chatName.split("-").sort();
+    return userPassword + ":" + parts.join("|");
+  }
+  // For group chats, use the group password
+  if (groupPasswords[chatName]) {
+    return groupPasswords[chatName];
+  }
+  // Default to user password
+  return userPassword;
 }
 
 async function register() {
@@ -233,6 +286,15 @@ async function setActiveChat(chatName) {
   currentChat = chatName;
   chatHeader.textContent = chatName;
   selectedMessageId = null;
+
+  // Show call button only for private chats
+  const callBtn = document.getElementById("callBtn");
+  if (chatName.includes("-") && !chatName.includes("group") && chatName !== "settings" && chatName !== "tickets") {
+    callBtn.style.display = "block";
+  } else {
+    callBtn.style.display = "none";
+  }
+
   await loadChatHistory(chatName);
 }
 
@@ -298,8 +360,9 @@ async function sendMessage() {
 
   let payloadText = text;
 
+  // Encrypt for non-system chats
   if (currentChat !== "settings" && currentChat !== "tickets" && userPassword) {
-    const encryptPass = userPassword;
+    const encryptPass = getEncryptionPassword(currentChat);
     payloadText = await encryptText(text, encryptPass);
   }
 
@@ -334,8 +397,10 @@ async function renderMessage(msg) {
 
   let textToShow = msg.text;
 
+  // Decrypt for non-system chats
   if (msg.chat !== "settings" && msg.chat !== "tickets" && userPassword) {
-    const decrypted = await decryptText(msg.text, userPassword);
+    const decryptPass = getEncryptionPassword(msg.chat);
+    const decrypted = await decryptText(msg.text, decryptPass);
     if (decrypted === null) {
       textToShow = "[unable to decrypt]";
     } else {
@@ -365,6 +430,11 @@ socket.on("new_message", async msg => {
   if (msg.chat !== currentChat) return;
   await renderMessage(msg);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  
+  // Check if message contains "kaki"
+  if (msg.text && msg.text.toLowerCase().includes("kaki")) {
+    triggerKakiEasterEgg();
+  }
 });
 
 socket.on("message_deleted", data => {
@@ -376,7 +446,8 @@ socket.on("message_deleted", data => {
 socket.on("chat_created", data => {
   if (!data || !data.chat) return;
   if (data.chat === "tickets" && username !== "Admin01") return;
-  addChatToMenu(data.chat);
+  addChatToMenu(data.chat, data.user2 ? `💬 ${data.user2}` : data.chat);
+  if (data.isDM) setActiveChat(data.chat);
 });
 
 socket.on("user_typing", data => {
@@ -404,9 +475,238 @@ document.addEventListener("keydown", e => {
   }
 });
 
+// Call button handler
+document.getElementById("callBtn").addEventListener("click", () => {
+  const parts = currentChat.split("-");
+  const recipient = parts[0] === username ? parts[1] : parts[0];
+  if (inCall) {
+    endCall();
+  } else {
+    initiateCall(recipient);
+  }
+});
+
 function escapeHtml(str) {
   return str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
+
+// Voice call functions
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }
+  ]
+};
+
+async function initiateCall(recipientUsername) {
+  if (inCall) {
+    authError.textContent = "Already in a call";
+    return;
+  }
+
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
+      video: false
+    });
+
+    callPartner = recipientUsername;
+    inCall = true;
+    callStartTime = Date.now();
+
+    document.getElementById("callBtn").classList.add("in-call");
+
+    peerConnection = new RTCPeerConnection(ICE_SERVERS);
+
+    localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localStream);
+    });
+
+    peerConnection.ontrack = event => {
+      remoteStream = event.streams[0];
+      playRemoteAudio(remoteStream);
+    };
+
+    peerConnection.onicecandidate = event => {
+      if (event.candidate) {
+        socket.emit("call_signal", {
+          to: recipientUsername,
+          signal: event.candidate
+        });
+      }
+    };
+
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+
+    socket.emit("call_initiate", {
+      from: username,
+      to: recipientUsername,
+      offer: offer
+    });
+
+    authError.textContent = `Calling ${recipientUsername}...`;
+  } catch (err) {
+    authError.textContent = "Microphone access denied";
+    inCall = false;
+  }
+}
+
+async function acceptCall(caller, offer) {
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
+      video: false
+    });
+
+    callPartner = caller;
+    inCall = true;
+    callStartTime = Date.now();
+
+    document.getElementById("callBtn").classList.add("in-call");
+
+    peerConnection = new RTCPeerConnection(ICE_SERVERS);
+
+    localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localStream);
+    });
+
+    peerConnection.ontrack = event => {
+      remoteStream = event.streams[0];
+      playRemoteAudio(remoteStream);
+    };
+
+    peerConnection.onicecandidate = event => {
+      if (event.candidate) {
+        socket.emit("call_signal", {
+          to: caller,
+          signal: event.candidate
+        });
+      }
+    };
+
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+
+    socket.emit("call_accept", {
+      caller: caller,
+      answer: answer
+    });
+
+    authError.textContent = `In call with ${caller}`;
+  } catch (err) {
+    authError.textContent = "Call failed";
+    rejectCall(caller);
+  }
+}
+
+function rejectCall(caller) {
+  socket.emit("call_reject", { caller });
+  inCall = false;
+}
+
+function endCall() {
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
+
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+    localStream = null;
+  }
+
+  remoteStream = null;
+  inCall = false;
+  callPartner = null;
+  callStartTime = null;
+
+  document.getElementById("callBtn").classList.remove("in-call");
+
+  socket.emit("call_end", { to: callPartner });
+  authError.textContent = "Call ended";
+}
+
+function playRemoteAudio(stream) {
+  const audioElement = document.createElement("audio");
+  audioElement.srcObject = stream;
+  audioElement.autoplay = true;
+  audioElement.style.display = "none";
+  document.body.appendChild(audioElement);
+}
+
+// Call event listeners
+socket.on("call_incoming", data => {
+  if (data.to !== username) return;
+
+  const accepted = confirm(`${data.from} is calling you. Accept?`);
+  if (accepted) {
+    acceptCall(data.from, data.offer);
+  } else {
+    rejectCall(data.from);
+  }
+});
+
+socket.on("call_signal_received", data => {
+  if (peerConnection && data.signal && typeof data.signal === 'object') {
+    try {
+      peerConnection.addIceCandidate(new RTCIceCandidate(data.signal));
+    } catch (err) {
+      // Ignore if candidate is invalid
+    }
+  }
+});
+
+socket.on("call_accepted", data => {
+  if (peerConnection && data.answer) {
+    peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(err => {
+      authError.textContent = "Error accepting call";
+    });
+  }
+});
+
+socket.on("call_rejected", data => {
+  endCall();
+  authError.textContent = `${callPartner} declined the call`;
+});
+
+socket.on("call_ended", data => {
+  if (inCall) {
+    endCall();
+    authError.textContent = `${callPartner} ended the call`;
+  }
+});
+
+socket.on("easter_egg", () => {
+  const overlay = document.getElementById("easterEggOverlay");
+  const video = document.getElementById("easterEggVideo");
+  
+  // 40% chance for secret2.mp4, 60% for secret.mp4
+  const videoFile = Math.random() < 0.4 ? "/assets/secret2.mp4" : "/assets/secret.mp4";
+  
+  video.src = videoFile;
+  overlay.classList.add("active");
+  
+  // Close on click
+  overlay.addEventListener("click", () => {
+    video.pause();
+    overlay.classList.remove("active");
+  }, { once: true });
+  
+  // Close on escape key
+  const closeOnEscape = (e) => {
+    if (e.key === "Escape") {
+      video.pause();
+      overlay.classList.remove("active");
+      document.removeEventListener("keydown", closeOnEscape);
+    }
+  };
+  document.addEventListener("keydown", closeOnEscape);
+});
+
+window.initiateCall = initiateCall;
+window.endCall = endCall;

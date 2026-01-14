@@ -2,6 +2,7 @@
   "name": "shitgram-app",
   "version": "1.0.0",
   "description": "Shitgram desktop client",
+  "author": "Kakashki-pro",
   "main": "main.js",
   "homepage": "./",
   "scripts": {
@@ -41,7 +42,8 @@
   },
   "devDependencies": {
     "electron": "^39.2.7",
-    "electron-builder": "^24.0.0",
-    "electron-is-dev": "^2.0.0"
+    "electron-builder": "^26.4.1",
+    "electron-is-dev": "^3.0.1",
+    "electron-prebuilt-compile": "^1.0.0"
   }
 }
