@@ -48,6 +48,21 @@ function triggerKakiEasterEgg() {
     audio.addEventListener("ended", () => clearInterval(fireFall));
 }
 
+// ===== VERSION DISPLAY =====
+async function loadAndDisplayVersion() {
+  try {
+    const res = await fetch(`${SERVER_URL}/api/version`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const versionDisplay = document.getElementById("versionDisplay");
+    if (versionDisplay) {
+      versionDisplay.textContent = `v${data.version}`;
+    }
+  } catch (e) {
+    console.error("Failed to load version:", e);
+  }
+}
+
 // ===== VALIDATION =====
 const LIMITS = {
   username: 32,
@@ -137,6 +152,7 @@ async function login() {
 
     ensureSettingsChat();
     await loadGroupsFromServer();
+    await loadAndDisplayVersion();
     setActiveChat("settings");
     
     const helpMsg = {

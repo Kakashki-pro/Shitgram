@@ -588,6 +588,7 @@
   <div class="user-info">
     <span id="userDisplay">—</span>
     <div class="online-badge"></div>
+    <span id="versionDisplay" style="font-size: 11px; color: #8b5a2b; margin-left: 8px; cursor: help;"></span>
   </div>
 </div>
 
@@ -662,9 +663,11 @@
   });
 
   // Update user display when logged in
+  // `username` is declared with `let` in script.js and is not a property of `window`.
+  // Access the variable directly and guard if it's undefined.
   setInterval(() => {
-    if (window.username && document.getElementById("userDisplay").textContent === "—") {
-      document.getElementById("userDisplay").textContent = window.username;
+    if (typeof username !== "undefined" && username && document.getElementById("userDisplay").textContent === "—") {
+      document.getElementById("userDisplay").textContent = username;
     }
   }, 500);
 

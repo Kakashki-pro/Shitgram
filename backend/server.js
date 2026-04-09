@@ -159,6 +159,17 @@ app.get("/api/messages/:chat", async (req, res) => {
   }
 });
 
+// ===== REST API - VERSION =====
+
+/**
+ * Get app version
+ * GET /api/version
+ */
+app.get("/api/version", (req, res) => {
+  const pkg = require("./package.json");
+  res.json({ version: pkg.version });
+});
+
 // ===== REST API - GROUPS =====
 
 /**
