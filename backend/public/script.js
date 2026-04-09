@@ -232,6 +232,20 @@ async function login() {
     ensureSettingsChat();
     await loadGroupsFromServer();
     setActiveChat("settings");
+
+      // ===== AFTER LOGIN (строка ~230) =====
+socket.emit("set_username", username);
+
+// ===== IN setActiveChat FUNCTION (строка ~300) =====
+// Добавить в конец функции:
+socket.emit("join_chat", { chat: chatName });
+
+// ===== IN chat item click handler (строка ~295) =====
+// Перед setActiveChat добавить:
+const oldChat = currentChat;
+if (oldChat) {
+  socket.emit("leave_chat", { chat: oldChat });
+}
     
     // Show /help by default in settings
     const helpMsg = {
