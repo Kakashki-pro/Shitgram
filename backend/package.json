@@ -1,6 +1,6 @@
 {
   "name": "shitgram",
-  "version": "1.0.0",
+  "version": "1.15-09042026",
   "description": "Encrypted messaging platform with voice calls",
   "main": "server.js",
   "bin": "server.js",
