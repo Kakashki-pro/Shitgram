@@ -7,7 +7,6 @@ let currentChat = "settings";
 let selectedMessageId = null;
 let typingTimeout = null;
 let isTyping = false;
-let groupPasswords = {};
 
 // Voice call state
 let inCall = false;
@@ -27,14 +26,10 @@ const chatList = document.getElementById("chatList");
 
 // Easter egg trigger function
 function triggerKakiEasterEgg() {
-    // 40% chance for bass version, 60% for normal
     const musicFile = Math.random() < 0.4 ? "/assets/easter_msg_bass.mp3" : "/assets/easter_msg.mp3";
-    
-    // Play music
     const audio = new Audio(musicFile);
     audio.play().catch(() => {});
 
-    // Create falling fire images
     const fireFall = setInterval(() => {
         const fire = document.createElement("img");
         fire.src = "/assets/fire_shit.png";
@@ -47,96 +42,18 @@ function triggerKakiEasterEgg() {
         fire.style.animationDuration = animDuration + "s";
 
         document.body.appendChild(fire);
-
-        // Remove after animation
         setTimeout(() => fire.remove(), animDuration * 1000);
-    }, 200); // Create new fire every 200ms
+    }, 200);
 
-    // Stop creating fires when music ends
     audio.addEventListener("ended", () => clearInterval(fireFall));
 }
 
-const IV_LENGTH = 12;
-const SALT_LENGTH = 16;
-const KEY_LENGTH = 32;
-const ITERATIONS = 200000;
-
-// Validation limits
+// ===== VALIDATION =====
 const LIMITS = {
   username: 32,
   chatName: 50,
-  message: 2000,
-  groupPassword: 256
+  message: 2000
 };
-
-async function deriveKey(password, salt) {
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(password),
-    { name: "PBKDF2" },
-    false,
-    ["deriveKey"]
-  );
-
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt,
-      iterations: ITERATIONS,
-      hash: "SHA-256"
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-
-async function encryptText(plainText, password) {
-  const enc = new TextEncoder();
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
-  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-  const key = await deriveKey(password, salt);
-
-  const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
-    enc.encode(plainText)
-  );
-
-  const encryptedBytes = new Uint8Array(encrypted);
-
-  const full = new Uint8Array(SALT_LENGTH + IV_LENGTH + encryptedBytes.length);
-  full.set(salt, 0);
-  full.set(iv, SALT_LENGTH);
-  full.set(encryptedBytes, SALT_LENGTH + IV_LENGTH);
-
-  return btoa(String.fromCharCode(...full));
-}
-
-async function decryptText(data, password) {
-  try {
-    const raw = Uint8Array.from(atob(data), c => c.charCodeAt(0));
-
-    const salt = raw.slice(0, SALT_LENGTH);
-    const iv = raw.slice(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
-    const encrypted = raw.slice(SALT_LENGTH + IV_LENGTH);
-
-    const key = await deriveKey(password, salt);
-
-    const decrypted = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv },
-      key,
-      encrypted
-    );
-
-    const dec = new TextDecoder();
-    return dec.decode(decrypted);
-  } catch {
-    return null;
-  }
-}
 
 function validateUsername(u) {
   if (!u || u.length < 2) return "Username must be 2+ characters";
@@ -158,20 +75,7 @@ function validateChatName(name) {
   return null;
 }
 
-function getEncryptionPassword(chatName) {
-  // For private chats (format: user1-user2), create deterministic key from both usernames
-  if (chatName.includes("-") && !chatName.includes("group") && chatName !== "settings" && chatName !== "tickets") {
-    const parts = chatName.split("-").sort();
-    return userPassword + ":" + parts.join("|");
-  }
-  // For group chats, use the group password
-  if (groupPasswords[chatName]) {
-    return groupPasswords[chatName];
-  }
-  // Default to user password
-  return userPassword;
-}
-
+// ===== AUTH =====
 async function register() {
   const u = document.getElementById("username").value.trim();
   const p = document.getElementById("password").value.trim();
@@ -229,39 +133,16 @@ async function login() {
     userPassword = p;
     authOverlay.style.display = "none";
 
+    socket.emit("set_username", username);
+
     ensureSettingsChat();
     await loadGroupsFromServer();
     setActiveChat("settings");
-
-      // ===== AFTER LOGIN (строка ~230) =====
-socket.emit("set_username", username);
-
-// ===== IN setActiveChat FUNCTION (строка ~300) =====
-// Добавить в конец функции:
-socket.emit("join_chat", { chat: chatName });
-
-// ===== IN chat item click handler (строка ~295) =====
-// Перед setActiveChat добавить:
-const oldChat = currentChat;
-if (oldChat) {
-  socket.emit("leave_chat", { chat: oldChat });
-}
     
-    // Show /help by default in settings
     const helpMsg = {
       id: genMsgId(),
       username: "settings_bot",
-      text: `Commands:
-  /help - list commands
-  /msg <username> - open DM with user
-  /change_name <new_nick> - change username
-  /Ucode - get user code
-  /finduser <code> - find user by code
-  /create_group <name> - create group
-  /Gcode <group> - get group code
-  /join_group <code> - join group
-  /delete_group-channel <name> - delete group
-  /ticket <text> - submit ticket`,
+      text: `Commands: /help /msg /change_name /Ucode /finduser /create_group /Gcode /join_group /delete_group-channel /ticket`,
       chat: "settings",
       time: Date.now()
     };
@@ -274,11 +155,11 @@ if (oldChat) {
 window.register = register;
 window.login = login;
 
+// ===== CHAT MANAGEMENT =====
 async function loadGroupsFromServer() {
   try {
     const res = await fetch(`${SERVER_URL}/api/groups?username=${username}`);
     if (!res.ok) return;
-
     const groups = await res.json();
     groups.forEach(g => {
       addChatToMenu(g.name, g.name);
@@ -302,10 +183,14 @@ function addChatToMenu(chatName, label) {
   div.dataset.chat = chatName;
   div.textContent = label || chatName;
 
-  div.addEventListener("click", () => {
+  div.addEventListener("click", async () => {
+    if (currentChat && currentChat !== chatName) {
+      socket.emit("leave_chat", { chat: currentChat });
+    }
+    
     document.querySelectorAll(".chat-item").forEach(i => i.classList.remove("active"));
     div.classList.add("active");
-    setActiveChat(chatName);
+    await setActiveChat(chatName);
   });
 
   chatList.appendChild(div);
@@ -317,11 +202,13 @@ async function setActiveChat(chatName) {
     setTimeout(() => { authError.textContent = ""; }, 3000);
     return;
   }
+  
   currentChat = chatName;
   chatHeader.textContent = chatName;
   selectedMessageId = null;
 
-  // Show call button only for private chats
+  socket.emit("join_chat", { chat: chatName });
+
   const callBtn = document.getElementById("callBtn");
   if (chatName.includes("-") && !chatName.includes("group") && chatName !== "settings" && chatName !== "tickets") {
     callBtn.style.display = "block";
@@ -360,6 +247,7 @@ async function loadChatHistory(chatName) {
   }
 }
 
+// ===== MESSAGING =====
 function showTypingIndicator() {
   if (isTyping) return;
   isTyping = true;
@@ -392,17 +280,9 @@ async function sendMessage() {
     return;
   }
 
-  let payloadText = text;
-
-  // Encrypt for non-system chats
-  if (currentChat !== "settings" && currentChat !== "tickets" && userPassword) {
-    const encryptPass = getEncryptionPassword(currentChat);
-    payloadText = await encryptText(text, encryptPass);
-  }
-
   socket.emit("send_message", {
     username,
-    text: payloadText,
+    text,
     chat: currentChat
   });
 
@@ -419,6 +299,7 @@ msgInput.addEventListener("keydown", e => {
 
 sendBtn.addEventListener("click", sendMessage);
 
+// ===== MESSAGE RENDERING =====
 async function renderMessage(msg) {
   const div = document.createElement("div");
   div.className = "message";
@@ -429,19 +310,7 @@ async function renderMessage(msg) {
     ? time.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
     : "";
 
-  let textToShow = msg.text;
-
-  // Decrypt for non-system chats
-  if (msg.chat !== "settings" && msg.chat !== "tickets" && userPassword) {
-    const decryptPass = getEncryptionPassword(msg.chat);
-    const decrypted = await decryptText(msg.text, decryptPass);
-    if (decrypted === null) {
-      textToShow = "[unable to decrypt]";
-    } else {
-      textToShow = decrypted;
-    }
-  }
-
+  const textToShow = msg.text;
   const isOwnMessage = msg.username === username;
 
   div.innerHTML = `
@@ -465,7 +334,6 @@ socket.on("new_message", async msg => {
   await renderMessage(msg);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   
-  // Check if message contains "kaki"
   if (msg.text && msg.text.toLowerCase().includes("kaki")) {
     triggerKakiEasterEgg();
   }
@@ -509,7 +377,7 @@ document.addEventListener("keydown", e => {
   }
 });
 
-// Call button handler
+// ===== VOICE CALLS =====
 document.getElementById("callBtn").addEventListener("click", () => {
   const parts = currentChat.split("-");
   const recipient = parts[0] === username ? parts[1] : parts[0];
@@ -527,7 +395,6 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;");
 }
 
-// Voice call functions
 const ICE_SERVERS = {
   iceServers: [
     { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }
@@ -567,6 +434,7 @@ async function initiateCall(recipientUsername) {
       if (event.candidate) {
         socket.emit("call_signal", {
           to: recipientUsername,
+          from: username,
           signal: event.candidate
         });
       }
@@ -616,6 +484,7 @@ async function acceptCall(caller, offer) {
       if (event.candidate) {
         socket.emit("call_signal", {
           to: caller,
+          from: username,
           signal: event.candidate
         });
       }
@@ -673,7 +542,6 @@ function playRemoteAudio(stream) {
   document.body.appendChild(audioElement);
 }
 
-// Call event listeners
 socket.on("call_incoming", data => {
   if (data.to !== username) return;
 
@@ -690,7 +558,7 @@ socket.on("call_signal_received", data => {
     try {
       peerConnection.addIceCandidate(new RTCIceCandidate(data.signal));
     } catch (err) {
-      // Ignore if candidate is invalid
+      // Ignore
     }
   }
 });
@@ -719,19 +587,16 @@ socket.on("easter_egg", () => {
   const overlay = document.getElementById("easterEggOverlay");
   const video = document.getElementById("easterEggVideo");
   
-  // 40% chance for secret2.mp4, 60% for secret.mp4
   const videoFile = Math.random() < 0.4 ? "/assets/secret2.mp4" : "/assets/secret.mp4";
   
   video.src = videoFile;
   overlay.classList.add("active");
   
-  // Close on click
   overlay.addEventListener("click", () => {
     video.pause();
     overlay.classList.remove("active");
   }, { once: true });
   
-  // Close on escape key
   const closeOnEscape = (e) => {
     if (e.key === "Escape") {
       video.pause();
@@ -741,6 +606,11 @@ socket.on("easter_egg", () => {
   };
   document.addEventListener("keydown", closeOnEscape);
 });
+
+// ===== UTILITY =====
+function genMsgId() {
+  return Date.now() + "_" + Math.random().toString(16).slice(2);
+}
 
 window.initiateCall = initiateCall;
 window.endCall = endCall;
