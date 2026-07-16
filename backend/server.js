@@ -95,7 +95,7 @@ app.post("/api/register", async (req, res) => {
 
   try {
     await auth.register(username, password, publicKey || "");
-    await startUserCodeRotation(username);
+    // Ротация запустится автоматически, когда пользователь откроет WebSocket-соединение
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -115,7 +115,7 @@ app.post("/api/login", async (req, res) => {
 
   try {
     const user = await auth.login(username, password);
-    await startUserCodeRotation(username);
+    // Ротация запустится автоматически, когда пользователь откроет WebSocket-соединение
     res.json({ ok: true, username: user.username });
   } catch (err) {
     res.status(401).json({ error: err.message });
@@ -199,9 +199,13 @@ const userSockets = new Map();
 
 io.on("connection", socket => {
   // Set username for this socket
-  socket.on("set_username", (username) => {
+  socket.on("set_username", async (username) => {
+    socket.username = username; // Сохраняем имя прямо в объекте сокета для безопасности
+
     if (!userSockets.has(username)) {
       userSockets.set(username, []);
+      // Запускаем ротацию только тогда, когда пользователь реально зашёл в сеть
+      await startUserCodeRotation(username);
     }
     userSockets.get(username).push(socket.id);
     console.log(`[CONNECT] ${username}`);
@@ -209,7 +213,8 @@ io.on("connection", socket => {
 
   // Send message
   socket.on("send_message", async data => {
-    const { username, text, chat } = data;
+    const { text, chat } = data;
+    const username = socket.username; // Защита от подмены: берём ник сокета, а не из data
 
     if (!username || !text || !chat) return;
 
@@ -263,7 +268,8 @@ io.on("connection", socket => {
 
   // Delete message
   socket.on("delete_message", async data => {
-    const { id, chat, username } = data;
+    const { id, chat } = data;
+    const username = socket.username; // Защита от удаления чужих сообщений через подмену username
     
     if (!id || !chat || !username) return;
 
@@ -286,7 +292,8 @@ io.on("connection", socket => {
 
   // Initiate call
   socket.on("call_initiate", async data => {
-    const { from, to, offer } = data;
+    const { to, offer } = data;
+    const from = socket.username; // Защита от подмены звонящего
     if (!from || !to || !offer) return;
     
     const recipientSockets = userSockets.get(to) || [];
@@ -297,8 +304,9 @@ io.on("connection", socket => {
 
   // WebRTC signal (ICE candidate)
   socket.on("call_signal", data => {
-    const { to, signal, from } = data;
-    if (!to || !signal) return;
+    const { to, signal } = data;
+    const from = socket.username; // Защита от подмены отправителя сигнала
+    if (!to || !signal || !from) return;
     
     const recipientSockets = userSockets.get(to) || [];
     recipientSockets.forEach(socketId => {
@@ -342,9 +350,36 @@ io.on("connection", socket => {
   // ===== CHAT ROOMS =====
 
   // Join chat room
-  socket.on("join_chat", (data) => {
+  socket.on("join_chat", async (data) => {
     const { chat } = data;
-    if (!chat) return;
+    const username = socket.username;
+
+    if (!chat || !username) return;
+
+    // Защита: проверяем, имеет ли пользователь право слушать эту комнату
+    if (chat !== "settings" && chat !== "tickets") {
+      try {
+        const groupResult = await db.query("SELECT * FROM groups WHERE name = $1", [chat]);
+        
+        if (groupResult.rows.length > 0) {
+          const isMember = await db.isMember(chat, username);
+          if (!isMember) {
+            socket.emit("error_message", { text: "Unauthorized access to group chat" });
+            return;
+          }
+        } else if (chat.includes("-")) {
+          const [user1, user2] = chat.split("-").sort();
+          if (user1 !== username && user2 !== username) {
+            socket.emit("error_message", { text: "Unauthorized access to DM chat" });
+            return;
+          }
+        }
+      } catch (err) {
+        console.error("Join room auth check error:", err);
+        return;
+      }
+    }
+
     socket.join(`chat-${chat}`);
   });
 
@@ -357,15 +392,18 @@ io.on("connection", socket => {
 
   // Disconnect
   socket.on("disconnect", () => {
-    for (const [username, sockets] of userSockets.entries()) {
+    const username = socket.username;
+    if (username && userSockets.has(username)) {
+      const sockets = userSockets.get(username);
       const idx = sockets.indexOf(socket.id);
       if (idx > -1) {
         sockets.splice(idx, 1);
-        if (sockets.length === 0) {
-          userSockets.delete(username);
-          stopCodeRotation(`user-${username}`);
-          console.log(`[DISCONNECT] User ${username}`);
-        }
+      }
+      if (sockets.length === 0) {
+        userSockets.delete(username);
+        // Как только сокетов у юзера не осталось (офлайн) — полностью убираем таймер ротации кодов
+        stopCodeRotation(`user-${username}`);
+        console.log(`[DISCONNECT] User ${username}`);
       }
     }
   });
@@ -387,6 +425,22 @@ async function handleCommand(username, text, io, socket) {
       const ok = await db.changeUsername(username, newName);
       if (ok) {
         stopCodeRotation(`user-${username}`);
+
+        // Важно: переименовываем структуру userSockets на лету
+        if (userSockets.has(username)) {
+          const sockets = userSockets.get(username);
+          userSockets.delete(username);
+          userSockets.set(newName, sockets);
+
+          // Обновляем ник на всех активных сокетах этого юзера (мультивкладки)
+          sockets.forEach(sid => {
+            const activeSocket = io.sockets.sockets.get(sid);
+            if (activeSocket) {
+              activeSocket.username = newName;
+            }
+          });
+        }
+
         await startUserCodeRotation(newName);
         return `Username changed to ${newName}`;
       }
@@ -554,10 +608,28 @@ function generateGroupCode() {
   return r(digits, 3) + r(big, 3) + r(digits, 3) + r(big, 1);
 }
 
+/**
+ * Восстанавливаем ротацию кодов для групп, у которых сгенерирован код, при запуске сервера
+ */
+async function bootstrapGroupRotations() {
+  try {
+    const result = await db.query("SELECT name FROM groups WHERE group_code IS NOT NULL AND group_code != ''");
+    for (const row of result.rows) {
+      await startGroupCodeRotation(row.name);
+    }
+    if (result.rows.length > 0) {
+      console.log(`[BOOTSTRAP] Started rotation for ${result.rows.length} groups`);
+    }
+  } catch (err) {
+    console.error("[BOOTSTRAP ERROR] Failed to load groups for code rotation:", err);
+  }
+}
+
 // ===== START SERVER =====
 
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  await bootstrapGroupRotations(); // Запуск ротации для уже существующих групп
 });
