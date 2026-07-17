@@ -23,6 +23,16 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
+// Health check - добавляем это (и корневой маршрут для Back4App)
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+// Back4App иногда ожидает ответ на корневой маршрут — добавим его тоже
+app.get('/', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 // ===== CODE ROTATION SYSTEM =====
 const codeRefreshIntervals = new Map();
 
