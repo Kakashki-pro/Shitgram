@@ -2,7 +2,7 @@
 # Optimized for Back4App hosting with WebSocket support
 
 # Stage 1: Builder
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 LABEL maintainer="Kakashki-pro"
 LABEL description="Shitgram - Encrypted messaging platform with WebSocket & voice calls"
@@ -21,7 +21,7 @@ RUN npm ci --only=production && \
     npm cache clean --force
 
 # Stage 2: Runtime
-FROM node:20-alpine
+FROM node:22-alpine
 
 # Set environment
 ENV NODE_ENV=production \
