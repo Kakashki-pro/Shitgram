@@ -27,9 +27,6 @@ FROM node:22-alpine
 ENV NODE_ENV=production \
     NPM_CONFIG_LOGLEVEL=warn
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
-
 WORKDIR /app
 
 # Copy production dependencies from builder
@@ -51,9 +48,6 @@ USER nodejs
 
 # Expose port 3000 as fallback (Back4App sets PORT environment variable)
 EXPOSE 3000
-
-# Use dumb-init to handle signals properly
-ENTRYPOINT ["/sbin/dumb-init", "--"]
 
 # Start the application
 CMD ["node", "server.js"]
