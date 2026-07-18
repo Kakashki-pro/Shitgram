@@ -1,6 +1,6 @@
 // Required Postgres tables and columns (expected schema):
 //
-// messages: msg_id (TEXT, unique), username (TEXT), text (TEXT), chat (TEXT), created_at (BIGINT or TIMESTAMP)
+// messages: id (BIGINT, SERIAL), sender_name (TEXT), text_content (TEXT, nullable), media_url (TEXT, nullable), chat (VARCHAR(100)), created_at (TIMESTAMP DEFAULT now())
 // users: username (TEXT, unique), password_hash (TEXT), public_key (TEXT), user_code (TEXT, unique)
 // groups: name (TEXT, unique), owner (TEXT), group_code (TEXT, unique)
 // group_members: group_name (TEXT), username (TEXT)
@@ -23,19 +23,20 @@ async function query(text, params) {
   return pool.query(text, params);
 }
 
-async function addMessage(id, username, text, chat, time) {
-  const sql = 'INSERT INTO messages (msg_id, username, text, chat, created_at) VALUES ($1, $2, $3, $4, $5)';
+// Messages API adapted to new schema
+async function addMessage(username, text, mediaUrl, chat) {
+  const sql = 'INSERT INTO messages (sender_name, text_content, media_url, chat) VALUES ($1, $2, $3, $4) RETURNING id';
   try {
-    await query(sql, [id, username, text, chat, time]);
-    return true;
+    const res = await query(sql, [username, text, mediaUrl, chat]);
+    return res.rows[0]?.id ?? null;
   } catch (err) {
     console.error('addMessage error:', err);
-    return false;
+    return null;
   }
 }
 
 async function getMessages(chat) {
-  const sql = 'SELECT msg_id as id, username, text, chat, created_at as time FROM messages WHERE chat = $1 ORDER BY created_at ASC';
+  const sql = 'SELECT id, sender_name as username, text_content as text, media_url, chat, created_at as time FROM messages WHERE chat = $1 ORDER BY created_at ASC';
   try {
     const res = await query(sql, [chat]);
     return res.rows;
@@ -45,10 +46,10 @@ async function getMessages(chat) {
   }
 }
 
-async function deleteMessage(id, chat) {
-  const sql = 'DELETE FROM messages WHERE msg_id = $1 AND chat = $2';
+async function deleteMessage(id) {
+  const sql = 'DELETE FROM messages WHERE id = $1';
   try {
-    await query(sql, [id, chat]);
+    await query(sql, [id]);
     return true;
   } catch (err) {
     console.error('deleteMessage error:', err);
@@ -176,7 +177,7 @@ async function changeUsername(oldName, newName) {
     // Update users table
     const upd = await client.query('UPDATE users SET username = $1 WHERE username = $2', [newName, oldName]);
     // Update other references
-    await client.query('UPDATE messages SET username = $1 WHERE username = $2', [newName, oldName]);
+    await client.query('UPDATE messages SET sender_name = $1 WHERE sender_name = $2', [newName, oldName]);
     await client.query('UPDATE group_members SET username = $1 WHERE username = $2', [newName, oldName]);
     await client.query('UPDATE groups SET owner = $1 WHERE owner = $2', [newName, oldName]);
     await client.query('COMMIT');
