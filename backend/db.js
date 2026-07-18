@@ -1,246 +1,223 @@
-const { Pool } = require("pg");
+// Required Postgres tables and columns (expected schema):
+//
+// messages: msg_id (TEXT, unique), username (TEXT), text (TEXT), chat (TEXT), created_at (BIGINT or TIMESTAMP)
+// users: username (TEXT, unique), password_hash (TEXT), public_key (TEXT), user_code (TEXT, unique)
+// groups: name (TEXT, unique), owner (TEXT), group_code (TEXT, unique)
+// group_members: group_name (TEXT), username (TEXT)
+// tickets: username (TEXT), text (TEXT)
+
+const { Pool } = require('pg');
+
+if (!process.env.DATABASE_URL) {
+  console.error('Missing DATABASE_URL environment variable. Set DATABASE_URL to your Postgres connection string.');
+  process.exit(1);
+}
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
-const db = {
-  query: (text, params) => pool.query(text, params)
-};
+// Generic query export — returns the full result from pg (so callers can use .rows)
+async function query(text, params) {
+  return pool.query(text, params);
+}
 
-db.changeUsername = async function(oldName, newName) {
+async function addMessage(id, username, text, chat, time) {
+  const sql = 'INSERT INTO messages (msg_id, username, text, chat, created_at) VALUES ($1, $2, $3, $4, $5)';
   try {
-    await db.query(
-      "UPDATE users SET username = $1 WHERE username = $2",
-      [newName, oldName]
-    );
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-db.getUserCode = async function(username) {
-  const result = await db.query(
-    "SELECT user_code FROM users WHERE username = $1",
-    [username]
-  );
-  return result.rows[0]?.user_code || null;
-};
-
-db.setUserCode = async function(username, code) {
-  try {
-    await db.query(
-      "UPDATE users SET user_code = $1 WHERE username = $2",
-      [code, username]
-    );
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-db.findUserByCode = async function(code) {
-  const result = await db.query(
-    "SELECT username FROM users WHERE user_code = $1",
-    [code]
-  );
-  return result.rows[0]?.username || null;
-};
-
-db.userExists = async function(username) {
-  const result = await db.query(
-    "SELECT 1 FROM users WHERE username = $1",
-    [username]
-  );
-  return result.rows.length > 0;
-};
-
-db.createGroup = async function(name, owner) {
-  try {
-    await db.query(
-      "INSERT INTO groups (name, owner) VALUES ($1, $2)",
-      [name, owner]
-    );
-
-    await db.query(
-      "INSERT INTO group_members (group_name, username) VALUES ($1, $2)",
-      [name, owner]
-    );
-
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-db.getGroup = async function(name) {
-  const result = await db.query(
-    "SELECT * FROM groups WHERE name = $1",
-    [name]
-  );
-  return result.rows[0] || null;
-};
-
-db.getGroupByCode = async function(code) {
-  const result = await db.query(
-    "SELECT * FROM groups WHERE group_code = $1",
-    [code]
-  );
-  return result.rows[0] || null;
-};
-
-db.setGroupCode = async function(name, code) {
-  try {
-    await db.query(
-      "UPDATE groups SET group_code = $1 WHERE name = $2",
-      [code, name]
-    );
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-db.isMember = async function(groupName, username) {
-  const result = await db.query(
-    "SELECT * FROM group_members WHERE group_name = $1 AND username = $2",
-    [groupName, username]
-  );
-  return result.rows.length > 0;
-};
-
-db.addGroupMember = async function(groupName, username) {
-  try {
-    await db.query(
-      "INSERT INTO group_members (group_name, username) VALUES ($1, $2)",
-      [groupName, username]
-    );
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-db.deleteGroup = async function(name, owner) {
-  const result = await db.query(
-    "SELECT owner FROM groups WHERE name = $1",
-    [name]
-  );
-
-  if (!result.rows[0] || result.rows[0].owner !== owner) return false;
-
-  await db.query("DELETE FROM groups WHERE name = $1", [name]);
-  await db.query("DELETE FROM group_members WHERE group_name = $1", [name]);
-
-  return true;
-};
-
-db.addTicket = async function(username, text) {
-  try {
-    await db.query(
-      "INSERT INTO tickets (username, text) VALUES ($1, $2)",
-      [username, text]
-    );
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-db.addMessage = async function(id, username, text, chat, time) {
-  try {
-    await db.query(
-      "INSERT INTO messages (msg_id, username, text, chat, created_at) VALUES ($1, $2, $3, $4, $5)",
-      [id, username, text, chat, time]
-    );
+    await query(sql, [id, username, text, chat, time]);
     return true;
   } catch (err) {
-    console.error("Failed to add message:", err);
+    console.error('addMessage error:', err);
     return false;
-  }
-};
-
-db.getMessages = async function(chat) {
-  try {
-    const result = await db.query(
-      "SELECT msg_id as id, username, text, chat, created_at as time FROM messages WHERE chat = $1 ORDER BY created_at ASC",
-      [chat]
-    );
-    return result.rows;
-  } catch (err) {
-    console.error("Failed to get messages:", err);
-    return [];
-  }
-};
-
-db.deleteMessage = async function(id, chat) {
-  try {
-    await db.query(
-      "DELETE FROM messages WHERE msg_id = $1 AND chat = $2",
-      [id, chat]
-    );
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-async function initTables() {
-  try {
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        public_key TEXT,
-        user_code TEXT UNIQUE
-      );
-    `);
-
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS groups (
-        id SERIAL PRIMARY KEY,
-        name TEXT UNIQUE NOT NULL,
-        owner TEXT NOT NULL,
-        group_code TEXT UNIQUE
-      );
-    `);
-
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS group_members (
-        id SERIAL PRIMARY KEY,
-        group_name TEXT NOT NULL,
-        username TEXT NOT NULL
-      );
-    `);
-
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS tickets (
-        id SERIAL PRIMARY KEY,
-        username TEXT NOT NULL,
-        text TEXT NOT NULL
-      );
-    `);
-
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS messages (
-        id SERIAL PRIMARY KEY,
-        msg_id TEXT UNIQUE NOT NULL,
-        username TEXT NOT NULL,
-        text TEXT NOT NULL,
-        chat TEXT NOT NULL,
-        created_at BIGINT NOT NULL
-      );
-    `);
-
-    console.log("Tables initialized");
-  } catch (err) {
-    console.error("Failed to initialize tables:", err);
   }
 }
 
-initTables();
+async function getMessages(chat) {
+  const sql = 'SELECT msg_id as id, username, text, chat, created_at as time FROM messages WHERE chat = $1 ORDER BY created_at ASC';
+  try {
+    const res = await query(sql, [chat]);
+    return res.rows;
+  } catch (err) {
+    console.error('getMessages error:', err);
+    return [];
+  }
+}
 
-module.exports = db;
+async function deleteMessage(id, chat) {
+  const sql = 'DELETE FROM messages WHERE msg_id = $1 AND chat = $2';
+  try {
+    await query(sql, [id, chat]);
+    return true;
+  } catch (err) {
+    console.error('deleteMessage error:', err);
+    return false;
+  }
+}
+
+async function userExists(username) {
+  const sql = 'SELECT 1 FROM users WHERE username = $1 LIMIT 1';
+  const res = await query(sql, [username]);
+  return res.rows.length > 0;
+}
+
+async function getUserCode(username) {
+  const sql = 'SELECT user_code FROM users WHERE username = $1';
+  const res = await query(sql, [username]);
+  return res.rows[0]?.user_code ?? null;
+}
+
+async function setUserCode(username, code) {
+  const sql = 'UPDATE users SET user_code = $1 WHERE username = $2';
+  try {
+    await query(sql, [code, username]);
+    return true;
+  } catch (err) {
+    console.error('setUserCode error:', err);
+    return false;
+  }
+}
+
+async function findUserByCode(code) {
+  const sql = 'SELECT username FROM users WHERE user_code = $1 LIMIT 1';
+  const res = await query(sql, [code]);
+  return res.rows[0]?.username ?? null;
+}
+
+async function createGroup(name, owner) {
+  // Return false if name already taken
+  const exists = await query('SELECT 1 FROM groups WHERE name = $1 LIMIT 1', [name]);
+  if (exists.rows.length > 0) return false;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('INSERT INTO groups (name, owner) VALUES ($1, $2)', [name, owner]);
+    await client.query('INSERT INTO group_members (group_name, username) VALUES ($1, $2)', [name, owner]);
+    await client.query('COMMIT');
+    return true;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('createGroup error:', err);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+async function getGroup(name) {
+  const res = await query('SELECT * FROM groups WHERE name = $1 LIMIT 1', [name]);
+  return res.rows[0] ?? null;
+}
+
+async function getGroupByCode(code) {
+  const res = await query('SELECT * FROM groups WHERE group_code = $1 LIMIT 1', [code]);
+  return res.rows[0] ?? null;
+}
+
+async function setGroupCode(groupName, code) {
+  try {
+    await query('UPDATE groups SET group_code = $1 WHERE name = $2', [code, groupName]);
+    return true;
+  } catch (err) {
+    console.error('setGroupCode error:', err);
+    return false;
+  }
+}
+
+async function isMember(groupName, username) {
+  const res = await query('SELECT 1 FROM group_members WHERE group_name = $1 AND username = $2 LIMIT 1', [groupName, username]);
+  return res.rows.length > 0;
+}
+
+async function addGroupMember(groupName, username) {
+  // avoid duplicate membership
+  const exists = await query('SELECT 1 FROM group_members WHERE group_name = $1 AND username = $2 LIMIT 1', [groupName, username]);
+  if (exists.rows.length > 0) return true;
+
+  try {
+    await query('INSERT INTO group_members (group_name, username) VALUES ($1, $2)', [groupName, username]);
+    return true;
+  } catch (err) {
+    console.error('addGroupMember error:', err);
+    return false;
+  }
+}
+
+async function deleteGroup(name, owner) {
+  const res = await query('SELECT owner FROM groups WHERE name = $1 LIMIT 1', [name]);
+  if (!res.rows[0] || res.rows[0].owner !== owner) return false;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM group_members WHERE group_name = $1', [name]);
+    await client.query('DELETE FROM groups WHERE name = $1', [name]);
+    await client.query('COMMIT');
+    return true;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('deleteGroup error:', err);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+async function changeUsername(oldName, newName) {
+  // Return false if newName is taken
+  const conflict = await query('SELECT 1 FROM users WHERE username = $1 LIMIT 1', [newName]);
+  if (conflict.rows.length > 0) return false;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Update users table
+    const upd = await client.query('UPDATE users SET username = $1 WHERE username = $2', [newName, oldName]);
+    // Update other references
+    await client.query('UPDATE messages SET username = $1 WHERE username = $2', [newName, oldName]);
+    await client.query('UPDATE group_members SET username = $1 WHERE username = $2', [newName, oldName]);
+    await client.query('UPDATE groups SET owner = $1 WHERE owner = $2', [newName, oldName]);
+    await client.query('COMMIT');
+
+    // If no rows in users were updated, treat it as failure
+    return upd.rowCount > 0;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('changeUsername error:', err);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
+async function addTicket(username, text) {
+  try {
+    await query('INSERT INTO tickets (username, text) VALUES ($1, $2)', [username, text]);
+    return true;
+  } catch (err) {
+    console.error('addTicket error:', err);
+    return false;
+  }
+}
+
+module.exports = {
+  query,
+  addMessage,
+  getMessages,
+  deleteMessage,
+  userExists,
+  getUserCode,
+  setUserCode,
+  findUserByCode,
+  createGroup,
+  getGroup,
+  getGroupByCode,
+  setGroupCode,
+  isMember,
+  addGroupMember,
+  deleteGroup,
+  changeUsername,
+  addTicket
+};
