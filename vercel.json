@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "https://shitgram-1czcen7h.b4a.run/$1" }
+  ]
+}
